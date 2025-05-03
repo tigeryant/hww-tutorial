@@ -1,26 +1,17 @@
 #![no_std]
 #![no_main]
 
-// Ensure we halt the program on panic (if we don't mention this crate it won't
-// be linked)
+// Ensure we halt the program on panic
 use panic_halt as _;
 
 // Alias for our HAL crate
 use rp235x_hal as hal;
 
-// use hal::gpio;
-
-// Some things we need
-// use core::fmt::Write;
-// use embedded_hal::delay::DelayNs;
 use hal::clocks::Clock;
 use hal::fugit::RateExtU32;
-
-// UART related types
-// use hal::uart::{DataBits, StopBits, UartConfig, ValidatedPinRx, ValidatedPinTx};
 use hal::uart::{DataBits, StopBits, UartConfig};
-use nb::block;                   // for blocking reads
-use embedded_hal_nb::serial::Read; // brings in the `read` method
+use nb::block;
+// use embedded_hal_nb::serial::Read;
 
 /// Tell the Boot ROM about our application
 #[link_section = ".start_block"]
@@ -28,16 +19,14 @@ use embedded_hal_nb::serial::Read; // brings in the `read` method
 pub static IMAGE_DEF: hal::block::ImageDef = hal::block::ImageDef::secure_exe();
 
 /// External high-speed crystal on the Raspberry Pi Pico 2 board is 12 MHz.
-/// Adjust if your board has a different frequency
 const XTAL_FREQ_HZ: u32 = 12_000_000u32;
 
-/// Entry point to our bare-metal application.
-///
-/// The `#[hal::entry]` macro ensures the Cortex-M start-up code calls this function
-/// as soon as all global variables and the spinlock are initialised.
-///
-/// The function configures the rp235x peripherals, then writes to the UART in
-/// an infinite loop.
+// Simple protocol constants
+const START_MARKER: u8 = 0xF0;
+const END_MARKER: u8 = 0xF1;
+const ESCAPE_CHAR: u8 = 0xF2;
+const ACK: u8 = 0x06;  // Acknowledge receipt
+
 #[hal::entry]
 fn main() -> ! {
     // Grab our singleton objects
@@ -57,8 +46,6 @@ fn main() -> ! {
         &mut watchdog,
     )
     .unwrap();
-
-    // let mut delay = hal::Timer::new_timer0(pac.TIMER0, &mut pac.RESETS, &clocks);
 
     // The single-cycle I/O block controls our GPIO pins
     let sio = hal::Sio::new(pac.SIO);
@@ -84,17 +71,100 @@ fn main() -> ! {
         )
         .unwrap();
 
-    uart0.write_full_blocking(b"UART example on UART0\r\n");
+    uart0.write_full_blocking(b"Bitcoin Hardware Wallet\r\n");
+    uart0.write_full_blocking(b"Ready to receive transactions\r\n");
+
+    // Buffer to store received transaction
+    let mut buffer = [0u8; 1024]; // Adjust size based on expected transaction size
 
     loop {
-        // 1) read one byte from host (blocks until a byte arrives)
-        let incoming: u8 = block!(uart0.read()).unwrap();
-
-        // 2) echo it back with a prefix
-        uart0.write_full_blocking(b"Got: ");
-        uart0.write_full_blocking(&[incoming]);
-        uart0.write_full_blocking(b"\r\n");
+        // Wait for and receive a transaction
+        let received_len = receive_transaction(&mut uart0, &mut buffer);
+        
+        // Process the transaction (in a real implementation)
+        // For now, just acknowledge receipt
+        uart0.write_full_blocking(b"Transaction received (");
+        
+        // Convert the length to ASCII and send it
+        let len_str = u16_to_ascii(received_len as u16);
+        uart0.write_full_blocking(&len_str);
+        
+        uart0.write_full_blocking(b" bytes)\r\n");
+        
+        // Send acknowledgment byte
+        uart0.write_full_blocking(&[ACK]);
     }
+}
+
+/// Receive a transaction from the host
+/// Returns the number of bytes received
+fn receive_transaction(
+    uart: &mut impl embedded_hal_nb::serial::Read<u8>,
+    buffer: &mut [u8]
+) -> usize {
+    let mut idx = 0;
+    let mut escape_next = false;
+    
+    // Wait for start marker
+    loop {
+        let byte = match block!(uart.read()) {
+            Ok(b) => b,
+            Err(_) => continue, // Handle error by continuing to try reading
+        };
+        if byte == START_MARKER {
+            break;
+        }
+    }
+    
+    // Read data until end marker
+    loop {
+        let byte = match block!(uart.read()) {
+            Ok(b) => b,
+            Err(_) => continue, // Handle error by continuing to try reading
+        };
+        
+        if escape_next {
+            // This byte was escaped, add it literally
+            if idx < buffer.len() {
+                buffer[idx] = byte;
+                idx += 1;
+            }
+            escape_next = false;
+        } else if byte == ESCAPE_CHAR {
+            // Next byte is escaped
+            escape_next = true;
+        } else if byte == END_MARKER {
+            // End of transaction
+            break;
+        } else {
+            // Normal byte
+            if idx < buffer.len() {
+                buffer[idx] = byte;
+                idx += 1;
+            }
+        }
+    }
+    
+    idx // Return the number of bytes received
+}
+
+
+/// Convert a u16 to ASCII bytes
+fn u16_to_ascii(value: u16) -> [u8; 5] {
+    let mut result = [b'0'; 5];
+    let mut val = value;
+    let mut i = 4;
+    
+    while val > 0 || i == 4 {
+        result[i] = b'0' + (val % 10) as u8;
+        val /= 10;
+        if i == 0 {
+            break;
+        }
+        i -= 1;
+    }
+    
+    result
 }
 
 /// Program metadata for `picotool info`
@@ -103,9 +173,7 @@ fn main() -> ! {
 pub static PICOTOOL_ENTRIES: [hal::binary_info::EntryAddr; 5] = [
     hal::binary_info::rp_cargo_bin_name!(),
     hal::binary_info::rp_cargo_version!(),
-    hal::binary_info::rp_program_description!(c"UART Example"),
+    hal::binary_info::rp_program_description!(c"Bitcoin Hardware Wallet"),
     hal::binary_info::rp_cargo_homepage_url!(),
     hal::binary_info::rp_program_build_attribute!(),
 ];
-
-// End of file
