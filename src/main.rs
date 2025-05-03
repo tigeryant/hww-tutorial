@@ -11,14 +11,16 @@ use rp235x_hal as hal;
 // use hal::gpio;
 
 // Some things we need
-use core::fmt::Write;
-use embedded_hal::delay::DelayNs;
+// use core::fmt::Write;
+// use embedded_hal::delay::DelayNs;
 use hal::clocks::Clock;
 use hal::fugit::RateExtU32;
 
 // UART related types
 // use hal::uart::{DataBits, StopBits, UartConfig, ValidatedPinRx, ValidatedPinTx};
 use hal::uart::{DataBits, StopBits, UartConfig};
+use nb::block;                   // for blocking reads
+use embedded_hal_nb::serial::Read; // brings in the `read` method
 
 /// Tell the Boot ROM about our application
 #[link_section = ".start_block"]
@@ -56,7 +58,7 @@ fn main() -> ! {
     )
     .unwrap();
 
-    let mut delay = hal::Timer::new_timer0(pac.TIMER0, &mut pac.RESETS, &clocks);
+    // let mut delay = hal::Timer::new_timer0(pac.TIMER0, &mut pac.RESETS, &clocks);
 
     // The single-cycle I/O block controls our GPIO pins
     let sio = hal::Sio::new(pac.SIO);
@@ -84,11 +86,14 @@ fn main() -> ! {
 
     uart0.write_full_blocking(b"UART example on UART0\r\n");
 
-    let mut value = 0u32;
     loop {
-        writeln!(uart0, "UART0 says value: {value:02}\r").unwrap();
-        delay.delay_ms(1000);
-        value += 1
+        // 1) read one byte from host (blocks until a byte arrives)
+        let incoming: u8 = block!(uart0.read()).unwrap();
+
+        // 2) echo it back with a prefix
+        uart0.write_full_blocking(b"Got: ");
+        uart0.write_full_blocking(&[incoming]);
+        uart0.write_full_blocking(b"\r\n");
     }
 }
 
