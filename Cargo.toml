@@ -13,6 +13,11 @@ name = "hww-tutorial"
 test = false
 bench = false
 
+[lib]
+name = "hww_tutorial"
+test = false
+bench = false
+
 [dependencies]
 cortex-m = "0.7.2"
 cortex-m-rt = "0.7"
