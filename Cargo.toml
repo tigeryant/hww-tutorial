@@ -48,6 +48,11 @@ usbd-serial = "0.2.2"
 static_cell = "2.1.0"
 embedded-hal-nb = "1.0.0"
 
+[dependencies.bitcoin]
+version = "0.30.0"
+default-features = false
+features = ["no-std"]
+
 [target.'cfg( target_arch = "arm" )'.dependencies]
 embassy-executor = {version = "0.5", features = ["arch-cortex-m", "executor-thread"]}
 

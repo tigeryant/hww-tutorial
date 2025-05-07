@@ -13,6 +13,11 @@ use hal::uart::{DataBits, StopBits, UartConfig};
 use hww_tutorial::init::init;
 use hww_tutorial::{receive_transaction, u16_to_ascii};
 
+use embedded_alloc::Heap;
+
+#[global_allocator]
+static HEAP: Heap = Heap::empty();
+
 /// Tell the Boot ROM about our application
 #[link_section = ".start_block"]
 #[used]
@@ -60,6 +65,8 @@ fn main() -> ! {
         
         // Send acknowledgment byte
         uart0.write_full_blocking(&[ACK]);
+
+        // parse the transaction, display to screen over I2C
     }
 }
 
